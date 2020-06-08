@@ -1,8 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace ShipGameWebSocketServer
 {
@@ -25,14 +23,11 @@ namespace ShipGameWebSocketServer
     class GameSession
     {
         //Key - Ship size, Key - Ship directon multiplier, Value - Starting coordinate
-        public Dictionary<int, KeyValuePair<int, int>> PlayerOneShips { get; set; }
-        public Dictionary<int, KeyValuePair<int, int>> PlayerTwoShips { get; set; }
+        public Dictionary<int, KeyValuePair<int, int>>[] PlayersShips { get; set; }
         public GameState GameState { get; set; }
-        public bool PlayerOneTurn { get; set; }
-        public bool PlayerOneReady { get; set; }
-        public bool PlayerTwoReady { get; set; }
-        public string PlayerOneSessionID { get; set; }
-        public string PlayerTwoSessionID { get; set; }
+        public bool[] PlayersReady { get; set; }
+        public bool[] PlayerTurns { get; set; }
+        public string[] PlayerSessionIDs { get; set; }
         public byte[] Boards { get; set; }
         public bool AttackCoordinates(int player, int letter, int number)
         {
@@ -47,47 +42,23 @@ namespace ShipGameWebSocketServer
             {
                 Boards[attackCoordinate] = (byte)CoordinateState.HitShip;
                 int hits = 0;
-                if (player == 0)
+                foreach (var ship in PlayersShips[player])
                 {
-                    foreach (var ship in PlayerOneShips)
+                    for (int i = 0; i < ship.Key; i++)
                     {
-                        for(int i=0;i<ship.Key;i++)
+                        if ((CoordinateState)Boards[ship.Value.Value + i * ship.Value.Key] == CoordinateState.HitShip)
                         {
-                            if((CoordinateState)Boards[ship.Value.Value + i * ship.Value.Key] == CoordinateState.HitShip)
-                            {
-                                hits++;
-                            }
+                            hits++;
                         }
-                        if(hits == ship.Key)
-                        {
-                            for(int i=0;i<ship.Key;i++)
-                            {
-                                Boards[ship.Value.Value + i * ship.Value.Key] = (byte)CoordinateState.FatalHitShip;
-                            }
-                        }
-                        hits = 0;
                     }
-                }
-                else
-                {
-                    foreach (var ship in PlayerTwoShips)
+                    if (hits == ship.Key)
                     {
                         for (int i = 0; i < ship.Key; i++)
                         {
-                            if ((CoordinateState)Boards[100 + ship.Value.Value + i * ship.Value.Key] == CoordinateState.HitShip)
-                            {
-                                hits++;
-                            }
+                            Boards[ship.Value.Value + i * ship.Value.Key] = (byte)CoordinateState.FatalHitShip;
                         }
-                        if (hits == ship.Key)
-                        {
-                            for (int i = 0; i < ship.Key; i++)
-                            {
-                                Boards[100 + ship.Value.Value + i * ship.Value.Key] = (byte)CoordinateState.FatalHitShip;
-                            }
-                        }
-                        hits = 0;
                     }
+                    hits = 0;
                 }
                 attacked = true;
             }
@@ -105,62 +76,69 @@ namespace ShipGameWebSocketServer
             }
             return this.GameState;
         }
-        public bool TryAddPlayer(string PlayerSessionID)
+        public bool TryAddPlayer(string playerSessionID)
         {
-            if(PlayerOneSessionID.Length == 0)
+            for(int i=0; i< PlayerSessionIDs.Length; i++)
             {
-                PlayerOneSessionID = PlayerSessionID;
-                if(PlayerTwoSessionID.Length > 0 && GameState == GameState.Waiting)
+                if(PlayerSessionIDs[i].Length == 0)
                 {
-                    PlayerOneTurn = true;
+                    PlayerSessionIDs[i] = playerSessionID;
+                    return true;
                 }
-                return true;
-            }
-            else if(PlayerTwoSessionID.Length == 0)
-            {
-                PlayerTwoSessionID = PlayerSessionID;
-                if (PlayerOneSessionID.Length > 0 && GameState == GameState.Waiting)
-                {
-                    PlayerOneTurn = true;
-                }
-                return true;
             }
             return false;
         }
         public GameSession()
         {
             Boards = new byte[200];
-            PlayerOneSessionID = "";
-            PlayerTwoSessionID = "";
-            PlayerOneReady = false;
-            PlayerTwoReady = false;
-            PlayerOneTurn = false;
-            PlayerOneShips = new Dictionary<int, KeyValuePair<int, int>>();
-            PlayerTwoShips = new Dictionary<int, KeyValuePair<int, int>>();
+            PlayerSessionIDs = new string[2];
+            PlayersReady = new bool[2];
+            PlayersShips = new Dictionary<int, KeyValuePair<int, int>>[2];
+            PlayerTurns = new bool[2];
+            for(int i=0;i<2;i++)
+            {
+                PlayerSessionIDs[i] = "";
+                PlayersReady[i] = false;
+                PlayersShips[i] = new Dictionary<int, KeyValuePair<int, int>>();
+            }
+            PlayerTurns[0] = true;
+            PlayerTurns[1] = false;
         }
-        public GameSession(string PlayerSessionID)
+        public GameSession(string playerSessionID)
         {
-            this.PlayerOneSessionID = PlayerSessionID;
-            PlayerTwoSessionID = "";
+            PlayerSessionIDs = new string[2];
+            PlayersReady = new bool[2];
+            PlayersShips = new Dictionary<int, KeyValuePair<int, int>>[2];
+            PlayerTurns = new bool[2];
+            PlayerSessionIDs[0] = playerSessionID;
+            PlayerSessionIDs[1] = "";
             this.GameState = GameState.Waiting;
             Boards = new byte[200];
-            PlayerOneReady = false;
-            PlayerTwoReady = false;
-            PlayerOneTurn = false;
-            PlayerOneShips = new Dictionary<int, KeyValuePair<int, int>>();
-            PlayerTwoShips = new Dictionary<int, KeyValuePair<int, int>>();
+            for (int i = 0; i < 2; i++)
+            {
+                PlayersReady[i] = false;
+                PlayersShips[i] = new Dictionary<int, KeyValuePair<int, int>>();
+            }
+            PlayerTurns[0] = true;
+            PlayerTurns[1] = false;
         }
-        public GameSession(string PlayerOneSessionID, string PlayerTwoSessionID)
+        public GameSession(string playerOneSessionID, string playerTwoSessionID)
         {
-            this.PlayerOneSessionID = PlayerOneSessionID;
-            this.PlayerTwoSessionID = PlayerTwoSessionID;
+            PlayerSessionIDs = new string[2];
+            PlayersReady = new bool[2];
+            PlayersShips = new Dictionary<int, KeyValuePair<int, int>>[2];
+            PlayerTurns = new bool[2];
+            PlayerSessionIDs[0] = playerOneSessionID;
+            PlayerSessionIDs[1] = playerTwoSessionID;
             this.GameState = GameState.Waiting;
             Boards = new byte[200];
-            PlayerOneReady = false;
-            PlayerTwoReady = false;
-            PlayerOneTurn = false;
-            PlayerOneShips = new Dictionary<int, KeyValuePair<int, int>>();
-            PlayerTwoShips = new Dictionary<int, KeyValuePair<int, int>>();
+            for (int i = 0; i < 2; i++)
+            {
+                PlayersReady[i] = false;
+                PlayersShips[i] = new Dictionary<int, KeyValuePair<int, int>>();
+            }
+            PlayerTurns[0] = true;
+            PlayerTurns[1] = false;
         }
     }
 }

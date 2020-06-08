@@ -1,0 +1,274 @@
+<!doctype html>
+<html>
+<body style=" background: lightblue;">
+    <style>
+        textarea {
+            vertical-align: bottom;
+        }
+
+        #output {
+            overflow: auto;
+        }
+
+            #output > p {
+                overflow-wrap: break-word;
+            }
+
+            #output span {
+                color: blue;
+            }
+
+                #output span.error {
+                    color: red;
+                }
+    </style>
+    <h2>Battleships</h2>
+    <canvas id="canvasPlayer" width="420px" height="420px" style="background: #fff; margin:20px"></canvas>
+    <canvas id="canvasOponent" width="420px" height="420px" style="background: #fff; margin:20px"></canvas>
+    <div></div>
+    <button onclick="onAttackClick()" id="attackButton">Attack</button>
+    <button onclick="onReadyClick()" id="readyButton">Ready!</button>
+    <button onclick="onRandShipsClick()" id="randButton">Randomize ships</button>
+    <button onclick="onJoinClick()" id="joinButton">Join game</button>
+    <button onclick="onCreateGameClick()" id="createButton">Create new game</button>
+    <div></div>
+    <textarea cols=60 rows=6></textarea>
+    <div id=output></div>
+
+    <script>
+        /*
+        Komunikaty:
+        0 - Stwórz grę
+        1 - Dołącz do gry o podanym ID
+        2 - Dołącz do losowej gry
+        3 - Losuj układ statków
+        4 -
+        */
+        const messageType = {
+            CREATEGAME: 0,
+            JOINTHISGAME: 1,
+            JOINGAME: 2,
+            RANDSHIPS: 3,
+            READY: 4,
+            ATTACK: 5,
+            GAMESTATE: 6,
+            BOARDS: 7
+        }
+        const gameState = {
+            WAITING: 0,
+            INPROGRESS: 1,
+            RESOLVED: 2,
+            LOST: 3,
+            WON: 4
+        }
+        var button = document.querySelector("button"),
+            output = document.querySelector("#output"),
+            textarea = document.querySelector("textarea"),
+            wsUri = "ws://127.0.0.1:8888/",
+            websocket = new WebSocket(wsUri);
+        websocket.binaryType = "arraybuffer";
+
+        //button.addEventListener("click", onClickSend);
+
+        websocket.onopen = function (e) {
+            writeToScreen("CONNECTED");
+            doSend("WebSocket rocks");
+        };
+
+        websocket.onclose = function (e) {
+            writeToScreen("DISCONNECTED");
+        };
+
+        websocket.onmessage = function (e) {
+            var buffer = new Uint8Array(e.data);
+            switch (buffer[0]) {
+                case messageType.BOARDS:
+                    drawBoard(canvasPlayer, buffer.subarray(1, 101));
+                    drawBoard(canvasOponent, buffer.subarray(101, 201));
+                    break;
+                case messageType.READY:
+                    writeToScreen("<span>Your turn!</span>");
+                    break;
+                case messageType.GAMESTATE:
+                    switch (buffer[1]) {
+                        case gameState.INPROGRESS:
+                            writeToScreen("<span>Game is currently in progress so you cannot join.</span>");
+                            break;
+                        case gameState.LOST:
+                            writeToScreen("<span style=\"color: red\">You have lost the game.</span>");
+                            break;
+                        case gameState.RESOLVED:
+                            writeToScreen("<span style=\"color: red\">You cannot join to already resolved game!</span>");
+                            break;
+                        case gameState.WON:
+                            writeToScreen("<span style=\"color: green\">You have won the game.</span>");
+                            break;
+                        default:
+                            break;
+                    }
+                    break;
+                case messageType.JOINGAME:
+                    writeToScreen("<span style=\"color: green\>Succesfully joined game " + buffer[1].toString() + "</span>");
+                    break;
+                case messageType.JOINTHISGAME:
+                    writeToScreen("<span style=\"color: green\>Game joined succesfully</span>");
+                    break;
+                default:
+                    var string = "";
+                    for (var i = 0; i < buffer.length; i++) {
+                        string += String.fromCharCode(buffer[i]);
+                    }
+                    writeToScreen("<span>" + string + "</span>");
+                    break;
+            }
+        };
+
+        websocket.onerror = function (e) {
+            writeToScreen("<span class=error>ERROR:</span> " + e.data);
+        };
+
+        function doSend(message) {
+            writeToScreen("SENDING MESSAGE");
+            websocket.send(message);
+        }
+
+        function writeToScreen(message) {
+            output.insertAdjacentHTML("afterbegin", "<p>" + message + "</p>");
+        }
+        // Box width
+        var bw = 400;
+        // Box height
+        var bh = 400;
+        // Padding
+        var p = 10;
+
+        var canvasPlayer = document.getElementById("canvasPlayer");
+        var canvasOponent = document.getElementById("canvasOponent");
+        function drawBoard(cnvs, states) {
+            var ctx = cnvs.getContext("2d");
+            ctx.clearRect(0, 0, cnvs.width, cnvs.height);
+            for (var x = 0; x <= bw; x += 40) {
+                ctx.moveTo(0.5 + x + p, p);
+                ctx.lineTo(0.5 + x + p, bh + p);
+            }
+
+            for (var x = 0; x <= bh; x += 40) {
+                ctx.moveTo(p, 0.5 + x + p);
+                ctx.lineTo(bw + p, 0.5 + x + p);
+            }
+            ctx.fillStyle = "black";
+            var c = 'A';
+            var c2 = '0';
+            for (var i = 0; i < 10; i++) {
+                ctx.fillText(c, 25 + i * 40, 8);
+                ctx.fillText(c2, 2, 35 + i * 40);
+                c = nextChar(c);
+                c2 = nextChar(c2);
+            }
+            ctx.strokeStyle = "black";
+            ctx.stroke();
+            var state;
+            if (states.length >= 100) {
+                for (var y = 0; y < 10; y++) {
+                    for (var x = 0; x < 10; x++) {
+                        state = states[y * 10 + x];
+                        switch (state) {
+                            case 1:
+                                drawShip(ctx, x, y);
+                                break;
+                            case 2:
+                                drawMiss(ctx, x, y);
+                                break;
+                            case 3:
+                                drawHit(ctx, x, y);
+                                break;
+                            case 4:
+                                drawFatalHit(ctx, x, y);
+                                break;
+                            default:
+                                break;
+                        }
+                    }
+                }
+            }
+        }
+        function getIntFromByte(array) {
+            var value;
+            for (var i = 0; i < array.length; i++) {
+                value = (value << 8) | array[i];
+            }
+            return value;
+        }
+        function nextChar(c) {
+            return String.fromCharCode(c.charCodeAt(0) + 1);
+        }
+        function drawMiss(ctx, x, y) {
+            ctx.moveTo(0.5 + x * 40 + p, 0.5 + y * 40 + p);
+            ctx.lineTo(0.5 + (x + 1) * 40 + p, 0.5 + (y + 1) * 40 + p);
+            ctx.moveTo(0.5 + x * 40 + p, 0.5 + (y + 1) * 40 + p);
+            ctx.lineTo(0.5 + (x + 1) * 40 + p, 0.5 + y * 40 + p);
+            ctx.stroke();
+        }
+        function drawHit(ctx, x, y) {
+            ctx.fillStyle = "black";
+            ctx.fillRect(0.5 + x * 40 + p, 0.5 + y * 40 + p, 40, 40);
+        }
+        function drawFatalHit(ctx, x, y) {
+            ctx.fillStyle = "red";
+            ctx.fillRect(0.5 + x * 40 + p, 0.5 + y * 40 + p, 40, 40);
+        }
+        function drawShip(ctx, x, y) {
+            ctx.fillStyle = "grey";
+            ctx.fillRect(0.5 + x * 40 + p, 0.5 + y * 40 + p, 40, 40);
+        }
+        function onRandShipsClick() {
+            var uint8array = new Uint8Array(1);
+            uint8array[0] = messageType.RANDSHIPS;
+            doSend(uint8array);
+        }
+        function onAttackClick() {
+            var uint8array = new Uint8Array(3);
+            if (textarea.value.length >= 2) {
+                uint8array[0] = messageType.ATTACK;
+                var letter = textarea.value.charCodeAt(0) - 65;
+                var number = textarea.value.charCodeAt(1) - 48;
+                if (letter >= 0 && letter <= 9 && number >= 0 && number <= 9) {
+                    uint8array[1] = letter;
+                    uint8array[2] = number;
+                }
+                else {
+                    uint8array[1] = 10;
+                    uint8array[2] = 10;
+                }
+            }
+            else {
+                uint8array[1] = 10;
+                uint8array[2] = 10;
+            }
+            doSend(uint8array);
+        }
+        function onReadyClick() {
+            var uint8array = new Uint8Array(1);
+            uint8array[0] = messageType.READY;
+            doSend(uint8array);
+        }
+        function onJoinClick() {
+            var uint8array = new Uint8Array(1);
+            if (textarea.value.length > 0 && !Number.isNaN(parseInt(textarea.value))) {
+                uint8array = new Uint8Array(2);
+                uint8array[0] = messageType.JOINTHISGAME;
+                uint8array[1] = parseInt(textarea.value);
+            }
+            else {
+                uint8array[0] = messageType.JOINGAME;
+            }
+            doSend(uint8array);
+        }
+        function onCreateGameClick() {
+            var uint8array = new Uint8Array(1);
+            uint8array[0] = messageType.CREATEGAME;
+            doSend(uint8array);
+        }
+    </script>
+</body>
+</html>

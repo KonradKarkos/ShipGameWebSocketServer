@@ -1,13 +1,8 @@
-﻿using SuperSocket.Common;
-using SuperWebSocket;
+﻿using SuperWebSocket;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net;
-using System.Net.Sockets;
 using System.Text;
-using System.Text.RegularExpressions;
-using System.Threading.Tasks;
 
 namespace ShipGameWebSocketServer
 {
@@ -45,39 +40,28 @@ namespace ShipGameWebSocketServer
         private static void WsServer_SessionClosed(WebSocketSession session, SuperSocket.SocketBase.CloseReason value)
         {
             byte[] msg;
-            if (gameSessions.Where(g => g.PlayerOneSessionID.Equals(session.SessionID)).Any())
+            if (gameSessions.Where(g => g.PlayerSessionIDs.Contains(session.SessionID)).Any())
             {
-                var games = gameSessions.Where(g => g.PlayerOneSessionID.Equals(session.SessionID)).ToList();
+                var games = gameSessions.Where(g => g.PlayerSessionIDs.Contains(session.SessionID)).ToList();
+                int gameIndex;
+                int playerIndex;
+                int opponentIndex;
                 foreach (GameSession g in games)
                 {
-                    gameSessions[gameSessions.IndexOf(g)].PlayerOneReady = false;
-                    gameSessions[gameSessions.IndexOf(g)].PlayerOneSessionID = "";
+                    gameIndex = gameSessions.IndexOf(g);
+                    playerIndex = Array.IndexOf(gameSessions[gameIndex].PlayerSessionIDs, session.SessionID);
+                    if (playerIndex == 0) opponentIndex = 1;
+                    else opponentIndex = 0;
+                    gameSessions[gameIndex].PlayersReady[playerIndex] = false;
+                    gameSessions[gameSessions.IndexOf(g)].PlayerSessionIDs[playerIndex] = "";
                     if (g.GameState != GameState.Lost && g.GameState != GameState.Won)
                     {
                         gameSessions[gameSessions.IndexOf(g)].GameState = GameState.Waiting;
                     }
-                    if (wsServer.GetAllSessions().Where(s => s.SessionID.Equals(g.PlayerTwoSessionID)).Any())
+                    if (wsServer.GetAllSessions().Where(s => s.SessionID.Equals(g.PlayerSessionIDs[opponentIndex])).Any())
                     {
                         msg = Encoding.UTF8.GetBytes("Other player disconnected");
-                        wsServer.GetAppSessionByID(g.PlayerTwoSessionID).Send(msg, 0, msg.Length);
-                    }
-                }
-            }
-            if (gameSessions.Where(g => g.PlayerTwoSessionID.Equals(session.SessionID)).Any())
-            {
-                var games = gameSessions.Where(g => g.PlayerTwoSessionID.Equals(session.SessionID)).ToList();
-                foreach (GameSession g in games)
-                {
-                    gameSessions[gameSessions.IndexOf(g)].PlayerTwoReady = false;
-                    gameSessions[gameSessions.IndexOf(g)].PlayerTwoSessionID = "";
-                    if (g.GameState != GameState.Lost && g.GameState != GameState.Won)
-                    {
-                        gameSessions[gameSessions.IndexOf(g)].GameState = GameState.Waiting;
-                    }
-                    if (wsServer.GetAllSessions().Where(s => s.SessionID.Equals(g.PlayerOneSessionID)).Any())
-                    {
-                        msg = Encoding.UTF8.GetBytes("Other player disconnected");
-                        wsServer.GetAppSessionByID(g.PlayerOneSessionID).Send(msg, 0, msg.Length);
+                        wsServer.GetAppSessionByID(g.PlayerSessionIDs[opponentIndex]).Send(msg, 0, msg.Length);
                     }
                 }
             }
@@ -88,6 +72,8 @@ namespace ShipGameWebSocketServer
         {
             byte[] msg;
             int gameID;
+            int playerIndex;
+            int opponentIndex;
             switch ((MessageType)value[0])
             {
                 case MessageType.CreateGame:
@@ -101,37 +87,41 @@ namespace ShipGameWebSocketServer
                         else
                         {
                             gameSessions.Clear();
-                            gameSessions.Add(new GameSession(session.SessionID));
-                            gameID = gameSessions.IndexOf(gameSessions.Find(g => g.PlayerOneSessionID.Equals(session.SessionID)));
+                            GameSession gameSession = new GameSession(session.SessionID);
+                            gameSessions.Add(gameSession);
+                            gameID = gameSessions.IndexOf(gameSession);
                             msg = Encoding.UTF8.GetBytes("New game created with ID " + gameID);
                             session.Send(msg, 0, msg.Length);
                         }
                     }
                     else
                     {
-                        gameSessions.Add(new GameSession(session.SessionID));
-                        gameID = gameSessions.IndexOf(gameSessions.Find(g => g.PlayerOneSessionID.Equals(session.SessionID)));
+                        GameSession gameSession = new GameSession(session.SessionID);
+                        gameSessions.Add(gameSession);
+                        gameID = gameSessions.IndexOf(gameSession);
                         msg = Encoding.UTF8.GetBytes("New game created with ID " + gameID);
                         session.Send(msg, 0, msg.Length);
                     }
                     break;
                 case MessageType.JoinThisGame:
-                    if (gameSessions.Count >= (int)value[1])
+                    gameID = (int)value[1];
+                    if (gameSessions.Count >= gameID)
                     {
-                        if (gameSessions[(int)value[1]].TryAddPlayer(session.SessionID))
+                        if (gameSessions[gameID].TryAddPlayer(session.SessionID))
                         {
                             session.Send(value, 0, value.Length);
                             msg = new byte[201];
                             msg[0] = (byte)MessageType.Boards;
-                            if(gameSessions[(int)value[1]].PlayerOneSessionID.Equals(session.SessionID))
-                            {
-                                PrepareBoardMessage(msg, gameSessions[(int)value[1]].Boards, 0, 1);
-                            }
-                            else
-                            {
-                                PrepareBoardMessage(msg, gameSessions[(int)value[1]].Boards, 1, 1);
-                            }
+                            playerIndex = Array.IndexOf(gameSessions[gameID].PlayerSessionIDs, session.SessionID);
+                            if (playerIndex == 0) opponentIndex = 1;
+                            else opponentIndex = 0;
+                            PrepareBoardMessage(msg, gameSessions[gameID].Boards, playerIndex, 1);
                             session.Send(msg, 0, msg.Length);
+                            if (wsServer.GetSessions(s => s.SessionID.Equals(gameSessions[gameID].PlayerSessionIDs[opponentIndex])).Any())
+                            {
+                                msg = Encoding.UTF8.GetBytes("Another player joined the game!");
+                                wsServer.GetAppSessionByID(gameSessions[gameID].PlayerSessionIDs[opponentIndex]).Send(msg, 0, msg.Length);
+                            }
                         }
                         else
                         {
@@ -148,9 +138,9 @@ namespace ShipGameWebSocketServer
                     }
                     break;
                 case MessageType.JoinGame:
-                    if (gameSessions.Count > 0 && gameSessions.Where(g => g.PlayerOneSessionID.Length == 0 || g.PlayerTwoSessionID.Length == 0).Any())
+                    if (gameSessions.Count > 0 && gameSessions.Where(g => g.PlayerSessionIDs.Where(s => s.Length == 0).Any()).Any())
                     {
-                        List<GameSession> openSessions = gameSessions.Where(g => g.PlayerOneSessionID.Length == 0 || g.PlayerTwoSessionID.Length == 0).ToList();
+                        List<GameSession> openSessions = gameSessions.Where(g => g.PlayerSessionIDs.Where(s => s.Length == 0).Any()).ToList();
                         bool sent = false;
                         for (int i = 0; i < openSessions.Count; i++)
                         {
@@ -163,15 +153,16 @@ namespace ShipGameWebSocketServer
                                 session.Send(msg, 0, msg.Length);
                                 msg = new byte[201];
                                 msg[0] = (byte)MessageType.Boards;
-                                if (openSessions[i].PlayerOneSessionID.Equals(session.SessionID))
-                                {
-                                    PrepareBoardMessage(msg, openSessions[i].Boards, 0, 1);
-                                }
-                                else
-                                {
-                                    PrepareBoardMessage(msg, openSessions[i].Boards, 1, 1);
-                                }
+                                playerIndex = Array.IndexOf(openSessions[i].PlayerSessionIDs, session.SessionID);
+                                if (playerIndex == 0) opponentIndex = 1;
+                                else opponentIndex = 0;
+                                PrepareBoardMessage(msg, openSessions[i].Boards, playerIndex, 1);
                                 session.Send(msg, 0, msg.Length);
+                                if (wsServer.GetSessions(s => s.SessionID.Equals(openSessions[i].PlayerSessionIDs[opponentIndex])).Any())
+                                {
+                                    msg = Encoding.UTF8.GetBytes("Another player joined the game!");
+                                    wsServer.GetAppSessionByID(openSessions[i].PlayerSessionIDs[opponentIndex]).Send(msg, 0, msg.Length);
+                                }
                                 sent = true;
                                 break;
                             }
@@ -189,7 +180,7 @@ namespace ShipGameWebSocketServer
                     }
                     break;
                 case MessageType.RandShips:
-                    var gamesR = gameSessions.Where(g => g.PlayerOneSessionID.Equals(session.SessionID) || g.PlayerTwoSessionID.Equals(session.SessionID));
+                    var gamesR = gameSessions.Where(g => g.PlayerSessionIDs.Contains(session.SessionID));
                     if (gamesR.Any())
                     {
                         gameID = gameSessions.IndexOf(gamesR.First());
@@ -197,27 +188,16 @@ namespace ShipGameWebSocketServer
                         {
                             msg = new byte[201];
                             msg[0] = (byte)MessageType.Boards;
-                            if (gameSessions[gameID].PlayerOneSessionID.Equals(session.SessionID))
+                            playerIndex = Array.IndexOf(gameSessions[gameID].PlayerSessionIDs, session.SessionID);
+                            if (playerIndex == 0) opponentIndex = 1;
+                            else opponentIndex = 0;
+                            RandShipsBoard(gameSessions[gameID].PlayersShips[playerIndex]).CopyTo(gameSessions[gameID].Boards, 100 * playerIndex);
+                            PrepareBoardMessage(msg, gameSessions[gameID].Boards, playerIndex, 1);
+                            session.Send(msg, 0, msg.Length);
+                            if (wsServer.GetSessions(s => s.SessionID.Equals(gameSessions[gameID].PlayerSessionIDs[opponentIndex])).Any())
                             {
-                                RandShipsBoard(gameSessions[gameID].PlayerOneShips).CopyTo(gameSessions[gameID].Boards, 0);
-                                PrepareBoardMessage(msg, gameSessions[gameID].Boards, 0, 1);
-                                session.Send(msg, 0, msg.Length);
-                                if (wsServer.GetSessions(s => s.SessionID.Equals(gameSessions[gameID].PlayerTwoSessionID)).Any())
-                                {
-                                    PrepareBoardMessage(msg, gameSessions[gameID].Boards, 1, 1);
-                                    wsServer.GetAppSessionByID(gameSessions[gameID].PlayerTwoSessionID).Send(msg, 0, msg.Length);
-                                }
-                            }
-                            else
-                            {
-                                RandShipsBoard(gameSessions[gameID].PlayerTwoShips).CopyTo(gameSessions[gameID].Boards, 100);
-                                PrepareBoardMessage(msg, gameSessions[gameID].Boards, 1, 1);
-                                session.Send(msg, 0, msg.Length);
-                                if (wsServer.GetSessions(s => s.SessionID.Equals(gameSessions[gameID].PlayerOneSessionID)).Any())
-                                {
-                                    PrepareBoardMessage(msg, gameSessions[gameID].Boards, 0, 1);
-                                    wsServer.GetAppSessionByID(gameSessions[gameID].PlayerOneSessionID).Send(msg, 0, msg.Length);
-                                }
+                                PrepareBoardMessage(msg, gameSessions[gameID].Boards, opponentIndex, 1);
+                                wsServer.GetAppSessionByID(gameSessions[gameID].PlayerSessionIDs[opponentIndex]).Send(msg, 0, msg.Length);
                             }
                         }
                         else
@@ -237,85 +217,55 @@ namespace ShipGameWebSocketServer
                     int number = (int)value[2];
                     if (letter >= 0 && letter <= 9 && number >= 0 && number <= 9)
                     {
-                        var gamesA = gameSessions.Where(g => (g.PlayerOneSessionID.Equals(session.SessionID) || g.PlayerTwoSessionID.Equals(session.SessionID)) && g.GameState == GameState.InProgress);
+                        var gamesA = gameSessions.Where(g => (g.PlayerSessionIDs.Contains(session.SessionID)) && g.GameState == GameState.InProgress);
                         if (gamesA.Any())
                         {
                             gameID = gameSessions.IndexOf(gamesA.First());
-                            if (gameSessions[gameID].PlayerOneTurn && gameSessions[gameID].PlayerOneSessionID.Equals(session.SessionID))
+                            playerIndex = Array.IndexOf(gameSessions[gameID].PlayerSessionIDs, session.SessionID);
+                            if (playerIndex == 0) opponentIndex = 1;
+                            else opponentIndex = 0;
+                            if (gameSessions[gameID].PlayerTurns[playerIndex])
                             {
-                                if (gameSessions[gameID].AttackCoordinates(1, letter, number))
+                                if (gameSessions[gameID].AttackCoordinates(playerIndex, letter, number))
                                 {
                                     msg = new byte[201];
                                     msg[0] = (byte)MessageType.Boards;
-                                    PrepareBoardMessage(msg, gameSessions[gameID].Boards, 0, 1);
-                                    gameSessions[gameID].PlayerOneTurn = false;
+                                    PrepareBoardMessage(msg, gameSessions[gameID].Boards, playerIndex, 1);
+                                    gameSessions[gameID].PlayerTurns[playerIndex] = false;
+                                    gameSessions[gameID].PlayerTurns[opponentIndex] = true;
                                     session.Send(msg, 0, msg.Length);
                                     GameState gameState = gameSessions[gameID].GetRefreshedGameState();
                                     if (gameState == GameState.Lost)
                                     {
-                                        var msg2 = Encoding.UTF8.GetBytes("You lost!");
-                                        session.Send(msg2, 0, msg2.Length);
+                                        msg = Encoding.UTF8.GetBytes("You lost!");
+                                        session.Send(msg, 0, msg.Length);
                                     }
                                     else if (gameState == GameState.Won)
                                     {
-                                        var msg2 = Encoding.UTF8.GetBytes("You won!");
-                                        session.Send(msg2, 0, msg2.Length);
+                                        msg = Encoding.UTF8.GetBytes("You won!");
+                                        session.Send(msg, 0, msg.Length);
                                     }
-                                    if (wsServer.GetSessions(s => s.SessionID.Equals(gameSessions[gameID].PlayerTwoSessionID)).Any())
+                                    if (wsServer.GetSessions(s => s.SessionID.Equals(gameSessions[gameID].PlayerSessionIDs[opponentIndex])).Any())
                                     {
-                                        PrepareBoardMessage(msg, gameSessions[gameID].Boards, 1, 1);
-                                        wsServer.GetAppSessionByID(gameSessions[gameID].PlayerTwoSessionID).Send(msg, 0, msg.Length);
+                                        msg = new byte[201];
+                                        msg[0] = (byte)MessageType.Boards;
+                                        PrepareBoardMessage(msg, gameSessions[gameID].Boards, opponentIndex, 1);
+                                        wsServer.GetAppSessionByID(gameSessions[gameID].PlayerSessionIDs[opponentIndex]).Send(msg, 0, msg.Length);
                                         if (gameState == GameState.Lost)
                                         {
-                                            var msg2 = Encoding.UTF8.GetBytes("You won!");
-                                            wsServer.GetAppSessionByID(gameSessions[gameID].PlayerTwoSessionID).Send(msg2, 0, msg2.Length);
+                                            msg = Encoding.UTF8.GetBytes("You won!");
+                                            wsServer.GetAppSessionByID(gameSessions[gameID].PlayerSessionIDs[opponentIndex]).Send(msg, 0, msg.Length);
                                         }
                                         else if (gameState == GameState.Won)
                                         {
-                                            var msg2 = Encoding.UTF8.GetBytes("You lost!");
-                                            wsServer.GetAppSessionByID(gameSessions[gameID].PlayerTwoSessionID).Send(msg2, 0, msg2.Length);
+                                            msg = Encoding.UTF8.GetBytes("You lost!");
+                                            wsServer.GetAppSessionByID(gameSessions[gameID].PlayerSessionIDs[opponentIndex]).Send(msg, 0, msg.Length);
                                         }
-                                    }
-                                }
-                                else
-                                {
-                                    msg = Encoding.UTF8.GetBytes("Cannot attack those coordinates");
-                                    session.Send(msg, 0, msg.Length);
-                                }
-                            }
-                            else if (!gameSessions[gameID].PlayerOneTurn && gameSessions[gameID].PlayerTwoSessionID.Equals(session.SessionID))
-                            {
-                                if (gameSessions[gameID].AttackCoordinates(0, letter, number))
-                                {
-                                    msg = new byte[201];
-                                    msg[0] = (byte)MessageType.Boards;
-                                    gameSessions[gameID].PlayerOneTurn = true;
-                                    PrepareBoardMessage(msg, gameSessions[gameID].Boards, 1, 1);
-                                    GameState gameState = gameSessions[gameID].GetRefreshedGameState();
-                                    session.Send(msg, 0, msg.Length);
-                                    if (gameState == GameState.Lost)
-                                    {
-                                        var msg2 = Encoding.UTF8.GetBytes("You won!");
-                                        session.Send(msg2, 0, msg2.Length);
-                                    }
-                                    else if (gameState == GameState.Won)
-                                    {
-                                        var msg2 = Encoding.UTF8.GetBytes("You lost!");
-                                        session.Send(msg2, 0, msg2.Length);
-                                    }
-                                    if (wsServer.GetSessions(s => s.SessionID.Equals(gameSessions[gameID].PlayerOneSessionID)).Any())
-                                    {
-                                        PrepareBoardMessage(msg, gameSessions[gameID].Boards, 0, 1);
-                                        wsServer.GetAppSessionByID(gameSessions[gameID].PlayerOneSessionID).Send(msg, 0, msg.Length);
-                                        if (gameState == GameState.Lost)
+                                        else if (gameState == GameState.InProgress)
                                         {
-                                            var msg2 = Encoding.UTF8.GetBytes("You lost!");
-                                            wsServer.GetAppSessionByID(gameSessions[gameID].PlayerOneSessionID).Send(msg2, 0, msg2.Length);
-                                        }
-                                        else if (gameState == GameState.Won)
-                                        {
-                                            var msg2 = Encoding.UTF8.GetBytes("You won!");
-                                            wsServer.GetAppSessionByID(gameSessions[gameID].PlayerOneSessionID).Send(msg2, 0, msg2.Length);
+                                            msg = new byte[1];
+                                            msg[0] = (byte)MessageType.Ready;
+                                            wsServer.GetAppSessionByID(gameSessions[gameID].PlayerSessionIDs[opponentIndex]).Send(msg, 0, msg.Length);
                                         }
                                     }
                                 }
@@ -344,33 +294,38 @@ namespace ShipGameWebSocketServer
                     }
                     break;
                 case MessageType.Ready:
-                    if (gameSessions.Where(g => g.PlayerOneSessionID.Equals(session.SessionID)).Any())
+                    if (gameSessions.Where(g => g.PlayerSessionIDs.Contains(session.SessionID)).Any())
                     {
-                        var games = gameSessions.Where(g => g.PlayerOneSessionID.Equals(session.SessionID)).ToList();
-                        foreach (GameSession g in games)
+                        gameID = gameSessions.IndexOf(gameSessions.Where(g => g.PlayerSessionIDs.Contains(session.SessionID)).First());
+                        playerIndex = Array.IndexOf(gameSessions[gameID].PlayerSessionIDs, session.SessionID);
+                        if (playerIndex == 0) opponentIndex = 1;
+                        else opponentIndex = 0;
+                        gameSessions[gameID].PlayersReady[playerIndex] = true;
+                        if (wsServer.GetSessions(s => s.SessionID.Equals(gameSessions[gameID].PlayerSessionIDs[opponentIndex])).Any())
                         {
-                            gameSessions[gameSessions.IndexOf(g)].PlayerOneReady = true;
                             msg = Encoding.UTF8.GetBytes("Other player ready");
-                            if (g.PlayerOneReady && g.PlayerTwoReady)
-                            {
-                                gameSessions[gameSessions.IndexOf(g)].GameState = GameState.InProgress;
-                            }
-                            wsServer.GetAppSessionByID(g.PlayerTwoSessionID).Send(msg, 0, msg.Length);
+                            wsServer.GetAppSessionByID(gameSessions[gameID].PlayerSessionIDs[opponentIndex]).Send(msg, 0, msg.Length);
                         }
-                    }
-                    if (gameSessions.Where(g => g.PlayerTwoSessionID.Equals(session.SessionID)).Any())
-                    {
-                        var games = gameSessions.Where(g => g.PlayerTwoSessionID.Equals(session.SessionID)).ToList();
-                        foreach (GameSession g in games)
+                        else
                         {
-                            gameSessions[gameSessions.IndexOf(g)].PlayerTwoReady = true;
-                            msg = Encoding.UTF8.GetBytes("Other player ready");
-                            if (g.PlayerOneReady && g.PlayerTwoReady)
-                            {
-                                gameSessions[gameSessions.IndexOf(g)].GameState = GameState.InProgress;
-                            }
-                            wsServer.GetAppSessionByID(g.PlayerOneSessionID).Send(msg, 0, msg.Length);
+                            msg = Encoding.UTF8.GetBytes("Ready acknowleged, waiting for another player to join game.");
+                            session.Send(msg, 0, msg.Length);
                         }
+                        if (!gameSessions[gameID].PlayersReady.Contains(false))
+                        {
+                            gameSessions[gameID].GameState = GameState.InProgress;
+                            for (int i = 0; i < gameSessions[gameID].PlayerTurns.Length; i++)
+                            {
+                                if (gameSessions[gameID].PlayerTurns[i])
+                                {
+                                    msg = new byte[1];
+                                    msg[0] = (byte)MessageType.Ready;
+                                    wsServer.GetAppSessionByID(gameSessions[gameID].PlayerSessionIDs[i]).Send(msg, 0, msg.Length);
+                                    break;
+                                }
+                            }
+                        }
+
                     }
                     break;
                 default:
