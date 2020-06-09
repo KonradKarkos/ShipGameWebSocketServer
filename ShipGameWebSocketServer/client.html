@@ -57,7 +57,7 @@
         const gameState = {
             WAITING: 0,
             INPROGRESS: 1,
-            RESOLVED: 2,
+            INTERRUPTED: 2,
             LOST: 3,
             WON: 4
         }
@@ -72,7 +72,6 @@
 
         websocket.onopen = function (e) {
             writeToScreen("CONNECTED");
-            doSend("WebSocket rocks");
         };
 
         websocket.onclose = function (e) {
@@ -96,9 +95,6 @@
                             break;
                         case gameState.LOST:
                             writeToScreen("<span style=\"color: red\">You have lost the game.</span>");
-                            break;
-                        case gameState.RESOLVED:
-                            writeToScreen("<span style=\"color: red\">You cannot join to already resolved game!</span>");
                             break;
                         case gameState.WON:
                             writeToScreen("<span style=\"color: green\">You have won the game.</span>");

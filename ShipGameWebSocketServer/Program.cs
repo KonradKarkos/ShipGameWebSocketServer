@@ -56,7 +56,7 @@ namespace ShipGameWebSocketServer
                     gameSessions[gameSessions.IndexOf(g)].PlayerSessionIDs[playerIndex] = "";
                     if (g.GameState != GameState.Lost && g.GameState != GameState.Won)
                     {
-                        gameSessions[gameSessions.IndexOf(g)].GameState = GameState.Waiting;
+                        gameSessions[gameSessions.IndexOf(g)].GameState = GameState.Interrupted;
                     }
                     if (wsServer.GetAllSessions().Where(s => s.SessionID.Equals(g.PlayerSessionIDs[opponentIndex])).Any())
                     {
@@ -226,7 +226,7 @@ namespace ShipGameWebSocketServer
                             else opponentIndex = 0;
                             if (gameSessions[gameID].PlayerTurns[playerIndex])
                             {
-                                if (gameSessions[gameID].AttackCoordinates(playerIndex, letter, number))
+                                if (gameSessions[gameID].AttackCoordinates(opponentIndex, letter, number))
                                 {
                                     msg = new byte[201];
                                     msg[0] = (byte)MessageType.Boards;

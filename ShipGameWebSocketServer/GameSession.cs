@@ -16,7 +16,7 @@ namespace ShipGameWebSocketServer
     {
         Waiting,
         InProgress,
-        Resolved,
+        Interrupted,
         Lost,
         Won
     }
@@ -42,11 +42,13 @@ namespace ShipGameWebSocketServer
             {
                 Boards[attackCoordinate] = (byte)CoordinateState.HitShip;
                 int hits = 0;
+                int checkCoordinate;
                 foreach (var ship in PlayersShips[player])
                 {
+                    checkCoordinate = ship.Value.Value + player * 100;
                     for (int i = 0; i < ship.Key; i++)
                     {
-                        if ((CoordinateState)Boards[ship.Value.Value + i * ship.Value.Key] == CoordinateState.HitShip)
+                        if ((CoordinateState)Boards[checkCoordinate + i * ship.Value.Key] == CoordinateState.HitShip)
                         {
                             hits++;
                         }
@@ -55,7 +57,7 @@ namespace ShipGameWebSocketServer
                     {
                         for (int i = 0; i < ship.Key; i++)
                         {
-                            Boards[ship.Value.Value + i * ship.Value.Key] = (byte)CoordinateState.FatalHitShip;
+                            Boards[checkCoordinate + i * ship.Value.Key] = (byte)CoordinateState.FatalHitShip;
                         }
                     }
                     hits = 0;
