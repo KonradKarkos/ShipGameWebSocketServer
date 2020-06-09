@@ -4,9 +4,9 @@ Server will keep game state even if both players disconnect. They can later join
 Communiaction is made through websockets using binary data.
 
 Known issues (09.06.2020):
-~~- Attacks on wrong boards.~~
-~~- Miscalculating FatalHits.~~
-~~- Allowing randomizing ships after connecting to already started game.~~
+- ~~Attacks on wrong boards.~~
+- ~~Miscalculating FatalHits.~~
+- ~~Allowing randomizing ships after connecting to already started game.~~
 
 Usage:
  - Run server.
